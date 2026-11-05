@@ -13,7 +13,7 @@ import {
   MapScreen,
   AiScreen,
 } from './src/screens';
-import { ScreenSwitcher, ScreenId } from './src/components/ui/ScreenSwitcher';
+import { ScreenId } from './src/components/ui/ScreenSwitcher';
 import { colors } from './src/theme';
 
 export default function App() {
@@ -177,10 +177,6 @@ export default function App() {
     <SafeAreaProvider>
       <View style={styles.outerContainer}>
         <View style={styles.phoneContainer}>
-          <ScreenSwitcher
-            currentScreen={currentScreen}
-            onSelectScreen={navigateTo}
-          />
           <View style={styles.contentArea}>
             {renderActiveScreen()}
           </View>
