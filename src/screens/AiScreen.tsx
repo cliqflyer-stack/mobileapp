@@ -20,6 +20,7 @@ import {
 import { AiProductComparisonCard } from '../components/ai/AiProductComparisonCard';
 import { AiBasketCard } from '../components/ai/AiBasketCard';
 import { FloatingTabBar } from '../components/ui/FloatingTabBar';
+import { BrandLogo } from '../components/ui/BrandLogo';
 import { colors } from '../theme';
 
 interface AiScreenProps {
@@ -106,7 +107,7 @@ export const AiScreen: React.FC<AiScreenProps> = ({
 
             {/* Logo + AI Badge */}
             <View style={styles.aiLogoGroup}>
-              <Text style={styles.aiLogoText}>flip</Text>
+              <BrandLogo height={20} variant="white" />
               <View style={styles.aiBadgePill}>
                 <Text style={styles.aiBadgeText}>AI</Text>
               </View>

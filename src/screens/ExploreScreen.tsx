@@ -17,6 +17,7 @@ import {
   DealTicket,
   FloatingTabBar,
   TabKey,
+  BrandLogo,
 } from '../components/ui';
 import { getFlyers, getDeals, DynamicDeal } from '../services/api';
 import { StoreFlyer, DEFAULT_STORE_FLYER } from '../data/flyerData';
@@ -87,7 +88,7 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({
         <View style={styles.headerContainer}>
           {/* Brand Row */}
           <View style={styles.brandRow}>
-            <Text style={styles.brandLogo}>flip</Text>
+            <BrandLogo height={28} />
 
             {/* Location Selector */}
             <TouchableOpacity

@@ -196,18 +196,20 @@ export const StoreFlyerScreen: React.FC<StoreFlyerScreenProps> = ({
         <View style={styles.bottomSpacer} />
       </ScreenWrapper>
 
-      {/* Floating Bottom Tab Bar */}
-      <FloatingTabBar
-        activeTab={activeTab}
-        onTabPress={(tab) => {
-          setActiveTab(tab);
-          if (tab === 'explore') {
-            onBack();
-          } else {
-            showToast(tab.charAt(0).toUpperCase() + tab.slice(1), `${tab} section`);
-          }
-        }}
-      />
+      {/* Floating Bottom Tab Bar (hidden when product bottom sheet is active) */}
+      {!selectedProduct && (
+        <FloatingTabBar
+          activeTab={activeTab}
+          onTabPress={(tab) => {
+            setActiveTab(tab);
+            if (tab === 'explore') {
+              onBack();
+            } else {
+              showToast(tab.charAt(0).toUpperCase() + tab.slice(1), `${tab} section`);
+            }
+          }}
+        />
+      )}
 
       {/* Product Detail Bottom Sheet */}
       <ProductBottomSheet

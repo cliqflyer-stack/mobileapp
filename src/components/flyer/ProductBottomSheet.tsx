@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  Modal,
   TouchableOpacity,
   Image,
-  Pressable,
+  Animated,
+  PanResponder,
+  Platform,
+  Easing,
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { Product } from '../../data/flyerData';
@@ -26,161 +28,238 @@ export const ProductBottomSheet: React.FC<ProductBottomSheetProps> = ({
   onAddToList,
   onToggleFavorite,
 }) => {
+  const [activeProduct, setActiveProduct] = useState<Product | null>(product);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isAdded, setIsAdded] = useState(false);
 
-  if (!product) return null;
+  const translateY = useRef(new Animated.Value(380)).current;
+
+  // Slide up when product is selected, slide down when product is cleared
+  useEffect(() => {
+    if (product) {
+      setActiveProduct(product);
+      setIsAdded(false);
+      setIsFavorite(false);
+
+      Animated.spring(translateY, {
+        toValue: 0,
+        friction: 8,
+        tension: 65,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(translateY, {
+        toValue: 380,
+        duration: 220,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) {
+          setActiveProduct(null);
+        }
+      });
+    }
+  }, [product]);
+
+  // PanResponder on drag handle to allow swipe-down to dismiss
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 5,
+      onPanResponderMove: (_, gesture) => {
+        if (gesture.dy > 0) {
+          translateY.setValue(gesture.dy);
+        }
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy > 70 || gesture.vy > 0.6) {
+          // Dismiss sheet
+          onClose();
+        } else {
+          // Snap back to open
+          Animated.spring(translateY, {
+            toValue: 0,
+            friction: 7,
+            tension: 70,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  if (!activeProduct && !product) return null;
+
+  const displayProduct = product || activeProduct;
+  if (!displayProduct) return null;
 
   const discountPercent =
-    product.regularPrice > 0
-      ? Math.max(0, Math.round((1 - product.offerPrice / product.regularPrice) * 100))
+    displayProduct.regularPrice > 0
+      ? Math.max(
+          0,
+          Math.round(
+            (1 - displayProduct.offerPrice / displayProduct.regularPrice) * 100
+          )
+        )
       : 0;
 
   const handleFavoritePress = () => {
     setIsFavorite((prev) => !prev);
-    onToggleFavorite?.(product);
+    onToggleFavorite?.(displayProduct);
   };
 
   const handleAddPress = () => {
     setIsAdded(true);
-    onAddToList?.(product);
+    onAddToList?.(displayProduct);
   };
 
   return (
-    <Modal
-      transparent
-      visible={Boolean(product)}
-      animationType="slide"
-      onRequestClose={onClose}
+    <Animated.View
+      style={[
+        styles.sheetWrapper,
+        {
+          transform: [{ translateY }],
+        },
+      ]}
+      pointerEvents={product ? 'auto' : 'none'}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheetContainer} onPress={(e) => e.stopPropagation()}>
-          {/* Top Drag Handle */}
+      <View style={styles.sheetContainer}>
+        {/* Top Drag Handle (Swipe down to dismiss) */}
+        <View style={styles.handleHitArea} {...panResponder.panHandlers}>
           <View style={styles.handleBar} />
+        </View>
 
-          {/* Header Row */}
-          <View style={styles.headerRow}>
-            <View style={styles.titleMeta}>
-              <Text style={styles.categoryBrandText}>
-                {product.brand.toUpperCase()} · {product.category.toUpperCase()}
-              </Text>
-              <Text style={styles.productTitleText} numberOfLines={2}>
-                {product.name}
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              onPress={onClose}
-              activeOpacity={0.7}
-              style={styles.closeButton}
-              accessibilityLabel="Close product details"
-            >
-              <Feather name="x" size={20} color={colors.textSecondary} />
-            </TouchableOpacity>
+        {/* Header Row */}
+        <View style={styles.headerRow}>
+          <View style={styles.titleMeta}>
+            <Text style={styles.categoryBrandText}>
+              {displayProduct.brand.toUpperCase()} ·{' '}
+              {displayProduct.category.toUpperCase()}
+            </Text>
+            <Text style={styles.productTitleText} numberOfLines={2}>
+              {displayProduct.name}
+            </Text>
           </View>
 
-          {/* Product Info Row */}
-          <View style={styles.bodyRow}>
-            {/* Product Image Card */}
-            <View style={styles.imageCard}>
-              <Image
-                source={product.image}
-                style={styles.productImage}
-                resizeMode="contain"
-              />
-            </View>
+          <TouchableOpacity
+            onPress={onClose}
+            activeOpacity={0.7}
+            style={styles.closeButton}
+            accessibilityLabel="Close product details"
+          >
+            <Feather name="x" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
 
-            {/* Description & Price Column */}
-            <View style={styles.detailsColumn}>
-              <Text style={styles.descriptionText} numberOfLines={3}>
-                {product.description}
+        {/* Product Info Row */}
+        <View style={styles.bodyRow}>
+          {/* Product Image Card */}
+          <View style={styles.imageCard}>
+            <Image
+              source={displayProduct.image}
+              style={styles.productImage}
+              resizeMode="contain"
+            />
+          </View>
+
+          {/* Description & Price Column */}
+          <View style={styles.detailsColumn}>
+            <Text style={styles.descriptionText} numberOfLines={3}>
+              {displayProduct.description}
+            </Text>
+
+            {/* Price Row */}
+            <View style={styles.priceRow}>
+              <Text style={styles.offerPriceText}>
+                ${displayProduct.offerPrice.toFixed(2)}
               </Text>
-
-              {/* Price Row */}
-              <View style={styles.priceRow}>
-                <Text style={styles.offerPriceText}>
-                  ${product.offerPrice.toFixed(2)}
-                </Text>
-                <Text style={styles.regularPriceText}>
-                  ${product.regularPrice.toFixed(2)}
-                </Text>
-                {discountPercent > 0 && (
-                  <View style={styles.discountBadge}>
-                    <Text style={styles.discountBadgeText}>
-                      {discountPercent}% OFF
-                    </Text>
-                  </View>
-                )}
-              </View>
+              <Text style={styles.regularPriceText}>
+                ${displayProduct.regularPrice.toFixed(2)}
+              </Text>
+              {discountPercent > 0 && (
+                <View style={styles.discountBadge}>
+                  <Text style={styles.discountBadgeText}>
+                    {discountPercent}% OFF
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
+        </View>
 
-          {/* Actions Footer */}
-          <View style={styles.actionsFooter}>
-            <View style={styles.addToListWrapper}>
-              <Button
-                label={isAdded ? 'Added to list ✓' : 'Add to shopping list'}
-                variant="primary"
-                onPress={handleAddPress}
-                style={isAdded ? styles.addedButton : undefined}
-              />
-            </View>
-
-            {/* Favorite Heart CTA */}
-            <TouchableOpacity
-              onPress={handleFavoritePress}
-              activeOpacity={0.7}
-              style={[
-                styles.favoriteButton,
-                isFavorite && styles.favoriteButtonActive,
-              ]}
-              accessibilityLabel="Add to favourites"
-            >
-              <Ionicons
-                name={isFavorite ? 'heart' : 'heart-outline'}
-                size={22}
-                color={isFavorite ? colors.brandRed : colors.primaryDark}
-              />
-            </TouchableOpacity>
+        {/* Actions Footer */}
+        <View style={styles.actionsFooter}>
+          <View style={styles.addToListWrapper}>
+            <Button
+              label={isAdded ? 'Added to list ✓' : 'Add to shopping list'}
+              variant="primary"
+              onPress={handleAddPress}
+              style={isAdded ? styles.addedButton : undefined}
+            />
           </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
+
+          {/* Favorite Heart CTA */}
+          <TouchableOpacity
+            onPress={handleFavoritePress}
+            activeOpacity={0.7}
+            style={[
+              styles.favoriteButton,
+              isFavorite && styles.favoriteButtonActive,
+            ]}
+            accessibilityLabel="Add to favourites"
+          >
+            <Ionicons
+              name={isFavorite ? 'heart' : 'heart-outline'}
+              size={22}
+              color={isFavorite ? colors.brandRed : colors.primaryDark}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Animated.View>
   );
 };
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    justifyContent: 'flex-end',
+  sheetWrapper: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
   },
   sheetContainer: {
     backgroundColor: colors.surfaceWhite,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderColor: 'rgba(215, 222, 215, 0.9)',
     paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 32,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 10,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    elevation: 16,
+  },
+  handleHitArea: {
+    width: '100%',
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   handleBar: {
-    width: 40,
+    width: 38,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#DDE3DA',
-    alignSelf: 'center',
-    marginBottom: 12,
+    backgroundColor: '#D0D8CF',
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   titleMeta: {
     flex: 1,
@@ -194,15 +273,15 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   productTitleText: {
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: '800',
     color: colors.primaryDark,
-    lineHeight: 24,
+    lineHeight: 23,
   },
   closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
@@ -211,11 +290,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    marginBottom: 20,
+    marginBottom: 18,
   },
   imageCard: {
-    width: 96,
-    height: 96,
+    width: 90,
+    height: 90,
     borderRadius: 16,
     backgroundColor: colors.background,
     borderWidth: 1,
@@ -243,23 +322,23 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   offerPriceText: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '900',
     color: colors.primary,
   },
   regularPriceText: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textMuted,
     textDecorationLine: 'line-through',
   },
   discountBadge: {
     backgroundColor: colors.dealChipBg,
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 2,
     borderRadius: radii.full,
   },
   discountBadgeText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
     color: colors.brandRed,
   },
@@ -275,8 +354,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryDark,
   },
   favoriteButton: {
-    width: 50,
-    height: 50,
+    width: 48,
+    height: 48,
     borderRadius: 14,
     borderWidth: 1.5,
     borderColor: colors.borderLight,

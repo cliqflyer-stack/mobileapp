@@ -1,10 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Image,
   StyleSheet,
   TouchableOpacity,
-  Animated,
   LayoutChangeEvent,
   Text,
   ScrollView,
@@ -12,6 +11,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { Hotspot } from '../../data/flyerData';
 import { colors } from '../../theme';
+import { SketchedCircle } from './SketchedCircle';
 
 interface InteractiveFlyerCanvasProps {
   flyerImage: any;
@@ -30,8 +30,6 @@ export const InteractiveFlyerCanvas: React.FC<InteractiveFlyerCanvasProps> = ({
 }) => {
   const [canvasWidth, setCanvasWidth] = useState(0);
   const [zoomLevel, setZoomLevel] = useState(1);
-  const scaleAnim = useRef(new Animated.Value(0.5)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
 
   const handleLayout = (e: LayoutChangeEvent) => {
     const width = e.nativeEvent.layout.width;
@@ -41,28 +39,6 @@ export const InteractiveFlyerCanvas: React.FC<InteractiveFlyerCanvasProps> = ({
   };
 
   const canvasHeight = canvasWidth > 0 ? canvasWidth * aspectRatio : 0;
-
-  // Animate circular highlight whenever a new hotspot is selected
-  useEffect(() => {
-    if (selectedHotspotId) {
-      scaleAnim.setValue(0.5);
-      opacityAnim.setValue(0);
-      Animated.parallel([
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          friction: 6,
-          tension: 80,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacityAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [selectedHotspotId]);
-
   const selectedHotspot = hotspots.find((h) => h.id === selectedHotspotId);
 
   // Zoom handlers
@@ -78,25 +54,27 @@ export const InteractiveFlyerCanvas: React.FC<InteractiveFlyerCanvasProps> = ({
     setZoomLevel(1);
   };
 
-  // Calculate position & diameter of the circular red highlight
-  const getHighlightGeometry = () => {
+  // Calculate position & proportional dimensions of the hand-drawn sketched loop
+  const getHighlightBounds = () => {
     if (!selectedHotspot || canvasWidth === 0) return null;
 
-    const w = selectedHotspot.width * canvasWidth;
-    const h = selectedHotspot.height * canvasHeight;
-    const diameter = Math.max(w, h) * 1.35;
-    const radius = diameter / 2;
+    const baseW = selectedHotspot.width * canvasWidth;
+    const baseH = selectedHotspot.height * canvasHeight;
 
-    const centerX = (selectedHotspot.x + selectedHotspot.width / 2) * canvasWidth;
-    const centerY = (selectedHotspot.y + selectedHotspot.height / 2) * canvasHeight;
+    // Organic padding around the product so the sketched loop surrounds it naturally
+    const padX = Math.max(14, baseW * 0.14);
+    const padY = Math.max(14, baseH * 0.14);
 
-    const left = centerX - radius;
-    const top = centerY - radius;
+    const width = Math.round(baseW + padX * 2);
+    const height = Math.round(baseH + padY * 2);
 
-    return { left, top, diameter, radius };
+    const left = Math.round(selectedHotspot.x * canvasWidth - padX);
+    const top = Math.round(selectedHotspot.y * canvasHeight - padY);
+
+    return { left, top, width, height };
   };
 
-  const highlightGeom = getHighlightGeometry();
+  const highlightBounds = getHighlightBounds();
 
   return (
     <View style={styles.outerContainer} onLayout={handleLayout}>
@@ -152,22 +130,16 @@ export const InteractiveFlyerCanvas: React.FC<InteractiveFlyerCanvasProps> = ({
               );
             })}
 
-            {/* Circular Red Highlight on Selected Product */}
-            {highlightGeom && (
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.circleHighlight,
-                  {
-                    left: highlightGeom.left * zoomLevel,
-                    top: highlightGeom.top * zoomLevel,
-                    width: highlightGeom.diameter * zoomLevel,
-                    height: highlightGeom.diameter * zoomLevel,
-                    borderRadius: highlightGeom.radius * zoomLevel,
-                    transform: [{ scale: scaleAnim }],
-                    opacity: opacityAnim,
-                  },
-                ]}
+            {/* Hand-Drawn Sketched Round on Selected Product */}
+            {highlightBounds && (
+              <SketchedCircle
+                key={`sketch-${selectedHotspotId}-${zoomLevel}`}
+                width={Math.round(highlightBounds.width * zoomLevel)}
+                height={Math.round(highlightBounds.height * zoomLevel)}
+                style={{
+                  left: highlightBounds.left * zoomLevel,
+                  top: highlightBounds.top * zoomLevel,
+                }}
               />
             )}
           </View>
@@ -259,14 +231,6 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: 'rgba(220, 38, 38, 0.35)',
     margin: 4,
-  },
-  circleHighlight: {
-    position: 'absolute',
-    borderWidth: 3.5,
-    borderColor: '#DC2626',
-    borderStyle: 'dashed',
-    backgroundColor: 'rgba(220, 38, 38, 0.12)',
-    zIndex: 20,
   },
   floatingControls: {
     position: 'absolute',

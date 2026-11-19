@@ -15,6 +15,7 @@ import { MAP_STORES, MapStore } from '../data/mapStoresData';
 import { InteractiveRealMap, InteractiveRealMapRef } from '../components/map/InteractiveRealMap';
 import { StoreDetailPreviewSheet } from '../components/map/StoreDetailPreviewSheet';
 import { FloatingTabBar } from '../components/ui/FloatingTabBar';
+import { BrandLogo } from '../components/ui/BrandLogo';
 import { colors } from '../theme';
 
 interface MapScreenProps {
@@ -92,7 +93,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({
             </View>
           </View>
 
-          <Text style={styles.brandLogo}>flip</Text>
+          <BrandLogo height={24} />
         </View>
 
         {/* Search Bar */}

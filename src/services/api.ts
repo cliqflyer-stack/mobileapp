@@ -49,7 +49,12 @@ export async function getFlyers(): Promise<StoreFlyer[]> {
     const data = await res.json();
 
     if (Array.isArray(data) && data.length > 0) {
-      return data.map((item: any) => ({
+      // Ensure expired flyers are hidden from shoppers
+      const activeData = data.filter((item: any) => {
+        if (!item.validTo) return true;
+        return new Date(item.validTo) >= new Date();
+      });
+      return activeData.map((item: any) => ({
         id: item.id,
         storeName: item.merchant?.name || item.title,
         storeLogoInitial: item.merchant?.initial || item.title.charAt(0),
@@ -59,7 +64,7 @@ export async function getFlyers(): Promise<StoreFlyer[]> {
         badgeVariant: item.badgeVariant || 'lime',
         flyerDate: item.subtitle || 'Weekly flyer',
         flyerImage: { uri: resolveMediaUri(item.flyerImageUrl) },
-        flyerAspectRatio: item.aspectRatio || 1.414,
+        flyerAspectRatio: item.aspectRatio || 1.7778, // Standard 9:16 vertical mobile aspect ratio
         hotspots: (item.hotspots || []).map((h: any) => ({
           id: h.id,
           productId: h.productId,
@@ -131,7 +136,7 @@ export async function getFlyerById(
       badgeVariant: item.badgeVariant || 'lime',
       flyerDate: item.subtitle || 'Weekly flyer',
       flyerImage: { uri: resolveMediaUri(item.flyerImageUrl) },
-      flyerAspectRatio: item.aspectRatio || 1.414,
+      flyerAspectRatio: item.aspectRatio || 1.7778, // Standard 9:16 vertical mobile aspect ratio
       hotspots,
     };
 

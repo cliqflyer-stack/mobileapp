@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { colors, spacing } from '../../theme';
+import { BrandLogo } from './BrandLogo';
 
 interface AppHeaderProps {
   onBack?: () => void;
@@ -70,7 +71,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.brandingRow}>
-        {showLogo ? <Text style={styles.logo}>flip</Text> : <View style={styles.iconPlaceholder} />}
+        {showLogo ? <BrandLogo height={26} /> : <View style={styles.iconPlaceholder} />}
 
         {rightAction === 'bell' ? (
           <View style={styles.brandingRightWithIcon}>
