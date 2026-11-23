@@ -9,6 +9,16 @@ export interface Product {
   offerPrice: number;
   image: ImageSourcePropType;
   category: string;
+  unit?: string;
+  sku?: string | null;
+  upc?: string | null;
+  options?: { label: string; value: string }[];
+}
+
+/** Legal links shown at the bottom of the product sheet (franchise default, store override). */
+export interface LegalLinks {
+  privacyPolicyUrl?: string | null;
+  termsUrl?: string | null;
 }
 
 export interface Hotspot {
@@ -33,6 +43,8 @@ export interface StoreFlyer {
   flyerImage: any;
   flyerAspectRatio: number; // height / width
   hotspots: Hotspot[];
+  privacyPolicyUrl?: string | null;
+  termsUrl?: string | null;
 }
 
 /**

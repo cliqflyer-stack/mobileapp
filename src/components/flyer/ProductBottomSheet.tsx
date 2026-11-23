@@ -9,82 +9,131 @@ import {
   PanResponder,
   Platform,
   Easing,
+  ScrollView,
+  Linking,
+  useWindowDimensions,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { Product } from '../../data/flyerData';
-import { colors, radii, spacing } from '../../theme';
+import { Product, LegalLinks } from '../../data/flyerData';
+import { colors, radii } from '../../theme';
 import { Button } from '../ui/Button';
 
 interface ProductBottomSheetProps {
   product: Product | null;
+  legal?: LegalLinks;
   onClose: () => void;
   onAddToList?: (product: Product) => void;
   onToggleFavorite?: (product: Product) => void;
 }
 
+/**
+ * Snap points (fractions of the screen height):
+ *  - COLLAPSED: 35% of the screen visible on open (summary: image, price, add to list)
+ *  - EXPANDED:  75% visible once the user scrolls/drags up (full details + policy links)
+ * The sheet itself is 75% tall; translateY moves it between snap points.
+ */
+const COLLAPSED_VISIBLE_FRACTION = 0.35;
+const EXPANDED_VISIBLE_FRACTION = 0.75;
+
 export const ProductBottomSheet: React.FC<ProductBottomSheetProps> = ({
   product,
+  legal,
   onClose,
   onAddToList,
   onToggleFavorite,
 }) => {
+  const { height: screenHeight } = useWindowDimensions();
+  const sheetHeight = Math.round(screenHeight * EXPANDED_VISIBLE_FRACTION);
+  const EXPANDED_Y = 0;
+  const COLLAPSED_Y = sheetHeight - Math.round(screenHeight * COLLAPSED_VISIBLE_FRACTION);
+  const HIDDEN_Y = sheetHeight;
+
   const [activeProduct, setActiveProduct] = useState<Product | null>(product);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isAdded, setIsAdded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
-  const translateY = useRef(new Animated.Value(380)).current;
+  const translateY = useRef(new Animated.Value(HIDDEN_Y)).current;
+  const currentY = useRef(HIDDEN_Y);
+  const dragStartY = useRef(HIDDEN_Y);
+  const expandedRef = useRef(false);
+  const scrollOffset = useRef(0);
 
-  // Slide up when product is selected, slide down when product is cleared
+  useEffect(() => {
+    const id = translateY.addListener(({ value }) => {
+      currentY.current = value;
+    });
+    return () => translateY.removeListener(id);
+  }, [translateY]);
+
+  const snapTo = (target: number) => {
+    const expanded = target === EXPANDED_Y;
+    expandedRef.current = expanded;
+    setIsExpanded(expanded);
+    Animated.spring(translateY, {
+      toValue: target,
+      friction: 8,
+      tension: 65,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  // Open collapsed (35%) on product select; hide when cleared
   useEffect(() => {
     if (product) {
       setActiveProduct(product);
       setIsAdded(false);
       setIsFavorite(false);
-
-      Animated.spring(translateY, {
-        toValue: 0,
-        friction: 8,
-        tension: 65,
-        useNativeDriver: true,
-      }).start();
+      scrollOffset.current = 0;
+      snapTo(COLLAPSED_Y);
     } else {
+      expandedRef.current = false;
+      setIsExpanded(false);
       Animated.timing(translateY, {
-        toValue: 380,
+        toValue: HIDDEN_Y,
         duration: 220,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }).start(({ finished }) => {
-        if (finished) {
-          setActiveProduct(null);
-        }
+        if (finished) setActiveProduct(null);
       });
     }
-  }, [product]);
+  }, [product, sheetHeight]);
 
-  // PanResponder on drag handle to allow swipe-down to dismiss
+  const SNAP_POINTS = [EXPANDED_Y, COLLAPSED_Y, HIDDEN_Y];
+
+  // Drag handling: swipe up expands (collapsed) / swipe down collapses or dismisses.
+  // When expanded, the inner ScrollView keeps scrolling; the sheet only takes over
+  // a downward pull once the details are scrolled back to the top.
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 5,
-      onPanResponderMove: (_, gesture) => {
-        if (gesture.dy > 0) {
-          translateY.setValue(gesture.dy);
-        }
+      onMoveShouldSetPanResponderCapture: (_, g) => {
+        if (Math.abs(g.dy) < 6 || Math.abs(g.dy) < Math.abs(g.dx)) return false;
+        if (!expandedRef.current) return true;
+        return g.dy > 0 && scrollOffset.current <= 0;
       },
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy > 70 || gesture.vy > 0.6) {
-          // Dismiss sheet
+      onPanResponderGrant: () => {
+        dragStartY.current = currentY.current;
+      },
+      onPanResponderMove: (_, g) => {
+        const y = Math.max(EXPANDED_Y, Math.min(HIDDEN_Y, dragStartY.current + g.dy));
+        translateY.setValue(y);
+      },
+      onPanResponderRelease: (_, g) => {
+        const y = Math.max(EXPANDED_Y, Math.min(HIDDEN_Y, dragStartY.current + g.dy));
+        const projected = y + g.vy * 120;
+        const target = SNAP_POINTS.reduce((best, p) =>
+          Math.abs(p - projected) < Math.abs(best - projected) ? p : best
+        );
+        if (target === HIDDEN_Y) {
           onClose();
         } else {
-          // Snap back to open
-          Animated.spring(translateY, {
-            toValue: 0,
-            friction: 7,
-            tension: 70,
-            useNativeDriver: true,
-          }).start();
+          snapTo(target);
         }
       },
+      onPanResponderTerminate: () => snapTo(expandedRef.current ? EXPANDED_Y : COLLAPSED_Y),
     })
   ).current;
 
@@ -97,11 +146,11 @@ export const ProductBottomSheet: React.FC<ProductBottomSheetProps> = ({
     displayProduct.regularPrice > 0
       ? Math.max(
           0,
-          Math.round(
-            (1 - displayProduct.offerPrice / displayProduct.regularPrice) * 100
-          )
+          Math.round((1 - displayProduct.offerPrice / displayProduct.regularPrice) * 100)
         )
       : 0;
+
+  const options = displayProduct.options ?? [];
 
   const handleFavoritePress = () => {
     setIsFavorite((prev) => !prev);
@@ -113,28 +162,38 @@ export const ProductBottomSheet: React.FC<ProductBottomSheetProps> = ({
     onAddToList?.(displayProduct);
   };
 
+  const openLink = (url?: string | null) => {
+    if (url) Linking.openURL(url).catch(() => {});
+  };
+
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollOffset.current = e.nativeEvent.contentOffset.y;
+  };
+
   return (
     <Animated.View
       style={[
         styles.sheetWrapper,
-        {
-          transform: [{ translateY }],
-        },
+        { height: sheetHeight, transform: [{ translateY }] },
       ]}
       pointerEvents={product ? 'auto' : 'none'}
     >
-      <View style={styles.sheetContainer}>
-        {/* Top Drag Handle (Swipe down to dismiss) */}
-        <View style={styles.handleHitArea} {...panResponder.panHandlers}>
+      <View style={styles.sheetContainer} {...panResponder.panHandlers}>
+        {/* Drag handle: tap to toggle between 35% and 75% */}
+        <TouchableOpacity
+          style={styles.handleHitArea}
+          activeOpacity={0.7}
+          onPress={() => snapTo(expandedRef.current ? COLLAPSED_Y : EXPANDED_Y)}
+          accessibilityLabel={isExpanded ? 'Collapse product details' : 'Expand product details'}
+        >
           <View style={styles.handleBar} />
-        </View>
+        </TouchableOpacity>
 
         {/* Header Row */}
         <View style={styles.headerRow}>
           <View style={styles.titleMeta}>
             <Text style={styles.categoryBrandText}>
-              {displayProduct.brand.toUpperCase()} ·{' '}
-              {displayProduct.category.toUpperCase()}
+              {displayProduct.brand.toUpperCase()} · {displayProduct.category.toUpperCase()}
             </Text>
             <Text style={styles.productTitleText} numberOfLines={2}>
               {displayProduct.name}
@@ -151,43 +210,30 @@ export const ProductBottomSheet: React.FC<ProductBottomSheetProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* Product Info Row */}
+        {/* Summary row (always visible at 35%) */}
         <View style={styles.bodyRow}>
-          {/* Product Image Card */}
           <View style={styles.imageCard}>
-            <Image
-              source={displayProduct.image}
-              style={styles.productImage}
-              resizeMode="contain"
-            />
+            <Image source={displayProduct.image} style={styles.productImage} resizeMode="contain" />
           </View>
 
-          {/* Description & Price Column */}
           <View style={styles.detailsColumn}>
-            <Text style={styles.descriptionText} numberOfLines={3}>
+            <Text style={styles.descriptionText} numberOfLines={isExpanded ? undefined : 2}>
               {displayProduct.description}
             </Text>
 
-            {/* Price Row */}
             <View style={styles.priceRow}>
-              <Text style={styles.offerPriceText}>
-                ${displayProduct.offerPrice.toFixed(2)}
-              </Text>
-              <Text style={styles.regularPriceText}>
-                ${displayProduct.regularPrice.toFixed(2)}
-              </Text>
+              <Text style={styles.offerPriceText}>${displayProduct.offerPrice.toFixed(2)}</Text>
+              <Text style={styles.regularPriceText}>${displayProduct.regularPrice.toFixed(2)}</Text>
               {discountPercent > 0 && (
                 <View style={styles.discountBadge}>
-                  <Text style={styles.discountBadgeText}>
-                    {discountPercent}% OFF
-                  </Text>
+                  <Text style={styles.discountBadgeText}>{discountPercent}% OFF</Text>
                 </View>
               )}
             </View>
           </View>
         </View>
 
-        {/* Actions Footer */}
+        {/* Actions (always visible at 35%) */}
         <View style={styles.actionsFooter}>
           <View style={styles.addToListWrapper}>
             <Button
@@ -198,14 +244,10 @@ export const ProductBottomSheet: React.FC<ProductBottomSheetProps> = ({
             />
           </View>
 
-          {/* Favorite Heart CTA */}
           <TouchableOpacity
             onPress={handleFavoritePress}
             activeOpacity={0.7}
-            style={[
-              styles.favoriteButton,
-              isFavorite && styles.favoriteButtonActive,
-            ]}
+            style={[styles.favoriteButton, isFavorite && styles.favoriteButtonActive]}
             accessibilityLabel="Add to favourites"
           >
             <Ionicons
@@ -215,10 +257,79 @@ export const ProductBottomSheet: React.FC<ProductBottomSheetProps> = ({
             />
           </TouchableOpacity>
         </View>
+
+        {/* Details: revealed when the sheet expands to 75% */}
+        <ScrollView
+          style={styles.detailsScroll}
+          contentContainerStyle={styles.detailsContent}
+          scrollEnabled={isExpanded}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          <Text style={styles.sectionTitle}>Product details</Text>
+          <View style={styles.infoGrid}>
+            <InfoRow label="Brand" value={displayProduct.brand} />
+            <InfoRow label="Category" value={displayProduct.category} />
+            <InfoRow label="Unit" value={displayProduct.unit} />
+            <InfoRow label="SKU" value={displayProduct.sku} />
+            <InfoRow label="UPC" value={displayProduct.upc} />
+          </View>
+
+          {options.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Options</Text>
+              <View style={styles.infoGrid}>
+                {options.map((o, i) => (
+                  <InfoRow key={`${o.label}-${i}`} label={o.label} value={o.value} />
+                ))}
+              </View>
+            </>
+          )}
+
+          {!!displayProduct.description && (
+            <>
+              <Text style={styles.sectionTitle}>About this item</Text>
+              <Text style={styles.fullDescription}>{displayProduct.description}</Text>
+            </>
+          )}
+
+          <View style={styles.legalRow}>
+            <TouchableOpacity
+              onPress={() => openLink(legal?.privacyPolicyUrl)}
+              disabled={!legal?.privacyPolicyUrl}
+              activeOpacity={0.7}
+              accessibilityLabel="Open privacy policy"
+            >
+              <Text style={[styles.legalLink, !legal?.privacyPolicyUrl && styles.legalLinkDisabled]}>
+                Privacy Policy
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.legalDot}>·</Text>
+            <TouchableOpacity
+              onPress={() => openLink(legal?.termsUrl)}
+              disabled={!legal?.termsUrl}
+              activeOpacity={0.7}
+              accessibilityLabel="Open terms and conditions"
+            >
+              <Text style={[styles.legalLink, !legal?.termsUrl && styles.legalLinkDisabled]}>
+                Terms &amp; Conditions
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </View>
     </Animated.View>
   );
 };
+
+const InfoRow: React.FC<{ label: string; value?: string | null }> = ({ label, value }) => (
+  <View style={styles.infoRow}>
+    <Text style={styles.infoLabel}>{label}</Text>
+    <Text style={styles.infoValue}>{value && value.length > 0 ? value : '—'}</Text>
+  </View>
+);
 
 const styles = StyleSheet.create({
   sheetWrapper: {
@@ -229,6 +340,7 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   sheetContainer: {
+    flex: 1,
     backgroundColor: colors.surfaceWhite,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -236,7 +348,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(215, 222, 215, 0.9)',
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.14,
@@ -366,5 +478,69 @@ const styles = StyleSheet.create({
   favoriteButtonActive: {
     borderColor: colors.dealChipBg,
     backgroundColor: colors.dealChipBg,
+  },
+  detailsScroll: {
+    flex: 1,
+    marginTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
+  },
+  detailsContent: {
+    paddingTop: 14,
+    paddingBottom: 24,
+    gap: 10,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.primaryDark,
+    marginTop: 6,
+  },
+  infoGrid: {
+    gap: 6,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSubtle,
+  },
+  infoLabel: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  infoValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    maxWidth: '60%',
+    textAlign: 'right',
+  },
+  fullDescription: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.textSecondary,
+  },
+  legalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+  },
+  legalLink: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.primary,
+    textDecorationLine: 'underline',
+  },
+  legalLinkDisabled: {
+    color: colors.textMuted,
+    textDecorationLine: 'none',
+  },
+  legalDot: {
+    fontSize: 11,
+    color: colors.textMuted,
   },
 });

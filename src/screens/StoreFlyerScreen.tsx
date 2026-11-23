@@ -214,6 +214,7 @@ export const StoreFlyerScreen: React.FC<StoreFlyerScreenProps> = ({
       {/* Product Detail Bottom Sheet */}
       <ProductBottomSheet
         product={selectedProduct}
+        legal={{ privacyPolicyUrl: flyer.privacyPolicyUrl, termsUrl: flyer.termsUrl }}
         onClose={() => setSelectedHotspotId(null)}
         onAddToList={(prod) => {
           showToast('Added to list', `${prod.name} saved to shopping list`);

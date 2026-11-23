@@ -114,6 +114,10 @@ export async function getFlyerById(
           offerPrice: Number(h.product.offerPrice),
           image: { uri: resolveMediaUri(h.product.imageUrl) },
           category: h.product.category || 'General',
+          unit: h.product.unit || undefined,
+          sku: h.product.sku || null,
+          upc: h.product.upc || null,
+          options: Array.isArray(h.product.options) ? h.product.options : [],
         };
       }
       return {
@@ -138,6 +142,9 @@ export async function getFlyerById(
       flyerImage: { uri: resolveMediaUri(item.flyerImageUrl) },
       flyerAspectRatio: item.aspectRatio || 1.7778, // Standard 9:16 vertical mobile aspect ratio
       hotspots,
+      // Store-level policy overrides fall back to the franchise defaults
+      privacyPolicyUrl: item.storeLocation?.privacyPolicyUrl || item.merchant?.privacyPolicyUrl || null,
+      termsUrl: item.storeLocation?.termsUrl || item.merchant?.termsUrl || null,
     };
 
     return { flyer, products: productsMap };
