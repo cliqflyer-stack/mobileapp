@@ -16,7 +16,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
   width,
   variant = 'default',
   style,
-  accessibilityLabel = 'Snatch up',
+  accessibilityLabel = 'Snatchup',
 }) => {
   const calculatedWidth = width ?? Math.round(height * LOGO_ASPECT_RATIO);
   const source =

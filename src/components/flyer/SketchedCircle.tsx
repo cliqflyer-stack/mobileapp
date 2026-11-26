@@ -1,206 +1,138 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Animated, Platform, Easing } from 'react-native';
-import Svg, { Path, G, Ellipse } from 'react-native-svg';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, StyleProp, ViewStyle } from 'react-native';
+import Svg, { Defs, Mask, Path, Rect, Image as SvgImage } from 'react-native-svg';
+
+const ART_WIDTH = 720;
+const ART_HEIGHT = 821;
+
+
+const ringImage = require('../../../assets/images/flyer/highlight-ring.png');
+
+// Centerline of the artwork's stroke in drawing order: from the top starting tip, clockwise,
+// to the ending tip that crosses just underneath it. Re-trace if the artwork changes.
+// The admin app keeps the same trace in components/flyer/highlight-ring.ts.
+const PEN_PATH: [number, number][] = [
+  [190, 26], [264, 25], [320, 28], [373, 35], [424, 48], [473, 64], [519, 84], [564, 108],
+  [603, 141], [635, 179], [661, 223], [679, 269], [693, 315], [700, 363], [703, 411],
+  [703, 459], [698, 507], [688, 557], [672, 605], [648, 653], [617, 695], [577, 733],
+  [530, 760], [480, 780], [427, 793], [373, 796], [320, 793], [267, 784], [216, 768],
+  [168, 743], [125, 711], [89, 672], [61, 628], [41, 580], [27, 532], [20, 483], [17, 434],
+  [18, 387], [23, 339], [31, 291], [46, 244], [65, 196], [90, 150], [125, 110], [168, 78],
+  [214, 63], [240, 60], [265, 59],
+];
+// Number of segments that make up the ending tip, beside the starting one
+const TAIL_SEGMENTS = 5;
+// Everything around the starting tip that belongs to the ending stroke. Kept hidden while
+// the pen starts, so no part of the ending shows up early.
+const ENDING_TIP_AREA =
+  'M 80 0 L 197 0 L 212 37 L 232 46 L 250 52 L 270 54 L 270 130 L 80 130 Z';
+
+const toPathData = (points: [number, number][]) =>
+  points.map(([x, y], i) => `${i ? 'L' : 'M'} ${x} ${y}`).join(' ');
+const pathLength = (points: [number, number][]) =>
+  points
+    .slice(1)
+    .reduce((total, [x, y], i) => total + Math.hypot(x - points[i][0], y - points[i][1]), 0);
+
+const TAIL_PATH = PEN_PATH.slice(-(TAIL_SEGMENTS + 1));
+const PEN_D = toPathData(PEN_PATH);
+const TAIL_D = toPathData(TAIL_PATH);
+const PEN_LENGTH = pathLength(PEN_PATH);
+const TAIL_LENGTH = pathLength(TAIL_PATH);
+// Slightly wider than the artwork's thickest part, so the whole stroke is uncovered
+const PEN_REVEAL_WIDTH = 68;
+const PEN_DRAW_MS = 250;
 
 interface SketchedCircleProps {
   width: number;
   height: number;
-  color?: string;
-  style?: any;
+  style?: StyleProp<ViewStyle>;
 }
 
-// Generates an organic hand-sketched cubic Bezier loop with natural human variations
-function generateSketchLoop(
-  w: number,
-  h: number,
-  turns = 1.15,
-  offsetAngle = -0.32,
-  wobbleSeed = 1
-): { path: string; length: number } {
-  const pad = 8;
-  const rx = Math.max(18, w / 2 - pad);
-  const ry = Math.max(18, h / 2 - pad);
-  const cx = w / 2;
-  const cy = h / 2;
-
-  const steps = 18;
-  const points: { x: number; y: number }[] = [];
-  const totalAngle = Math.PI * 2 * turns;
-
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const theta = offsetAngle + t * totalAngle;
-
-    // Organic hand-drawn variations (wobble + tail flick)
-    const w1 = 0.045 * Math.sin(theta * 2 + wobbleSeed);
-    const w2 = 0.025 * Math.cos(theta * 3 - wobbleSeed);
-    const tailFlare = t > 0.85 ? 0.06 * (t - 0.85) * 6.5 : 0;
-    const rFactor = 1 + w1 + w2 + tailFlare;
-
-    const px = cx + rx * rFactor * Math.cos(theta);
-    const py = cy + ry * rFactor * Math.sin(theta);
-    points.push({ x: px, y: py });
-  }
-
-  // Smooth Catmull-Rom spline converted to SVG cubic Bezier segments
-  let d = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[Math.min(points.length - 1, i + 2)];
-
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-
-    d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
-  }
-
-  // Estimate total path length for stroke drawing animation
-  const approxPerimeter =
-    2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2) * turns;
-
-  return { path: d, length: Math.round(approxPerimeter * 1.05) };
-}
-
-export const SketchedCircle: React.FC<SketchedCircleProps> = ({
-  width,
-  height,
-  color = '#DC2626',
-  style,
-}) => {
-  const [drawProgress, setDrawProgress] = useState(0);
-
-  const scaleAnim = useRef(new Animated.Value(0.92)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-
-  // Generate paths for primary pen stroke and secondary sketched accent stroke
-  const primary = React.useMemo(
-    () => generateSketchLoop(width, height, 1.16, -0.32, 1.2),
-    [width, height]
-  );
-
-  const secondary = React.useMemo(
-    () => generateSketchLoop(width, height, 1.12, 0.42, 2.7),
-    [width, height]
-  );
+/** The marker ring around the selected product, drawn on as if by hand. */
+export const SketchedCircle: React.FC<SketchedCircleProps> = ({ width, height, style }) => {
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    // Reset and trigger draw animation
-    setDrawProgress(0);
-    scaleAnim.setValue(0.92);
-    opacityAnim.setValue(0);
+    let frame = 0;
+    let startTime: number | null = null;
 
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 6,
-        tension: 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    // Smoothly animate the stroke draw effect (simulating hand sketching)
-    const startTime = Date.now();
-    const duration = 300; // ms to complete drawing loop
-
-    let animFrameId: number;
-
-    const animateStroke = () => {
-      const now = Date.now();
-      const elapsed = now - startTime;
-      const progress = Math.min(1, elapsed / duration);
-
-      // Ease-out cubic curve for natural pen speed (fast start, gradual taper)
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setDrawProgress(eased);
-
-      if (progress < 1) {
-        animFrameId = requestAnimationFrame(animateStroke);
-      }
+    const step = (now: number) => {
+      startTime ??= now;
+      const t = Math.min(1, (now - startTime) / PEN_DRAW_MS);
+      // Ease in and out, like a pen setting off and slowing as it closes the loop
+      setProgress(t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+      if (t < 1) frame = requestAnimationFrame(step);
     };
 
-    animFrameId = requestAnimationFrame(animateStroke);
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
-    return () => {
-      if (animFrameId) {
-        cancelAnimationFrame(animFrameId);
-      }
-    };
-  }, [width, height]);
-
-  const p1Offset = primary.length * (1 - drawProgress);
-  const p2Offset = secondary.length * (1 - drawProgress);
+  const drawn = PEN_LENGTH * progress;
+  const tailDrawn = Math.max(0, drawn - (PEN_LENGTH - TAIL_LENGTH));
 
   return (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        styles.container,
-        {
-          width,
-          height,
-          transform: [{ scale: scaleAnim }],
-          opacity: opacityAnim,
-        },
-        style,
-      ]}
-    >
-      <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-        <G>
-          {/* Subtle translucent marker wash inside the circle */}
-          <Ellipse
-            cx={width / 2}
-            cy={height / 2}
-            rx={Math.max(16, width / 2 - 12)}
-            ry={Math.max(16, height / 2 - 12)}
-            fill="rgba(220, 38, 38, 0.05)"
-            opacity={drawProgress}
-          />
-
-          {/* Secondary sketched pen stroke (multi-stroke hand sketch texture) */}
-          <Path
-            d={secondary.path}
-            fill="none"
-            stroke={color}
-            strokeWidth={1.8}
-            strokeOpacity={0.65}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeDasharray={[secondary.length, secondary.length]}
-            strokeDashoffset={p2Offset}
-          />
-
-          {/* Primary bold marker drawn stroke */}
-          <Path
-            d={primary.path}
-            fill="none"
-            stroke={color}
-            strokeWidth={3.2}
-            strokeOpacity={0.95}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeDasharray={[primary.length, primary.length]}
-            strokeDashoffset={p1Offset}
-          />
-        </G>
+    <View pointerEvents="none" style={[styles.container, { width, height }, style]}>
+      <Svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${ART_WIDTH} ${ART_HEIGHT}`}
+        preserveAspectRatio="none"
+      >
+        <Defs>
+          <Mask
+            id="pen-reveal"
+            maskUnits="userSpaceOnUse"
+            x={0}
+            y={0}
+            width={ART_WIDTH}
+            height={ART_HEIGHT}
+          >
+            <Path
+              d={PEN_D}
+              fill="none"
+              stroke="#FFFFFF"
+              strokeWidth={PEN_REVEAL_WIDTH}
+              strokeLinejoin="round"
+              strokeDasharray={[PEN_LENGTH, PEN_LENGTH]}
+              strokeDashoffset={PEN_LENGTH - drawn}
+            />
+            {/* Hide the ending tip from the starting stroke, then draw it when the pen returns */}
+            <Path d={ENDING_TIP_AREA} fill="#000000" />
+            <Path
+              d={TAIL_D}
+              fill="none"
+              stroke="#FFFFFF"
+              strokeWidth={PEN_REVEAL_WIDTH}
+              strokeLinejoin="round"
+              strokeDasharray={[TAIL_LENGTH, TAIL_LENGTH]}
+              strokeDashoffset={TAIL_LENGTH - tailDrawn}
+              opacity={tailDrawn > 0 ? 1 : 0}
+            />
+            {/* Once drawn, show the artwork untouched, including its slanted tips */}
+            <Rect
+              width={ART_WIDTH}
+              height={ART_HEIGHT}
+              fill="#FFFFFF"
+              opacity={progress >= 1 ? 1 : 0}
+            />
+          </Mask>
+        </Defs>
+        <SvgImage
+          href={ringImage}
+          width={ART_WIDTH}
+          height={ART_HEIGHT}
+          mask="url(#pen-reveal)"
+        />
       </Svg>
-    </Animated.View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
     zIndex: 25,
   },
 });

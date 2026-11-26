@@ -54,22 +54,20 @@ export const InteractiveFlyerCanvas: React.FC<InteractiveFlyerCanvasProps> = ({
     setZoomLevel(1);
   };
 
-  // Calculate position & proportional dimensions of the hand-drawn sketched loop
+  // Size the ring around the product without distorting it, and keep it inside the flyer
   const getHighlightBounds = () => {
     if (!selectedHotspot || canvasWidth === 0) return null;
 
     const baseW = selectedHotspot.width * canvasWidth;
     const baseH = selectedHotspot.height * canvasHeight;
 
-    // Organic padding around the product so the sketched loop surrounds it naturally
-    const padX = Math.max(14, baseW * 0.14);
-    const padY = Math.max(14, baseH * 0.14);
+    const width = Math.round(Math.min(Math.max(56, baseW * 1.3), canvasWidth));
+    const height = Math.round(Math.min(Math.max(56, baseH * 1.3), canvasHeight));
 
-    const width = Math.round(baseW + padX * 2);
-    const height = Math.round(baseH + padY * 2);
-
-    const left = Math.round(selectedHotspot.x * canvasWidth - padX);
-    const top = Math.round(selectedHotspot.y * canvasHeight - padY);
+    const centerX = (selectedHotspot.x + selectedHotspot.width / 2) * canvasWidth;
+    const centerY = (selectedHotspot.y + selectedHotspot.height / 2) * canvasHeight;
+    const left = Math.round(Math.max(0, Math.min(canvasWidth - width, centerX - width / 2)));
+    const top = Math.round(Math.max(0, Math.min(canvasHeight - height, centerY - height / 2)));
 
     return { left, top, width, height };
   };
@@ -106,7 +104,6 @@ export const InteractiveFlyerCanvas: React.FC<InteractiveFlyerCanvasProps> = ({
 
             {/* Tap Targets / Hotspots */}
             {hotspots.map((hotspot) => {
-              const isSelected = hotspot.id === selectedHotspotId;
               return (
                 <TouchableOpacity
                   key={hotspot.id}
@@ -120,7 +117,6 @@ export const InteractiveFlyerCanvas: React.FC<InteractiveFlyerCanvasProps> = ({
                       width: `${hotspot.width * 100}%`,
                       height: `${hotspot.height * 100}%`,
                     },
-                    isSelected && styles.hotspotActiveOutline,
                   ]}
                   accessibilityLabel="View product deal"
                 >
@@ -130,7 +126,7 @@ export const InteractiveFlyerCanvas: React.FC<InteractiveFlyerCanvasProps> = ({
               );
             })}
 
-            {/* Hand-Drawn Sketched Round on Selected Product */}
+            {/* Hand-drawn marker ring on the selected product */}
             {highlightBounds && (
               <SketchedCircle
                 key={`sketch-${selectedHotspotId}-${zoomLevel}`}
@@ -221,9 +217,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     padding: 2,
     zIndex: 10,
-  },
-  hotspotActiveOutline: {
-    backgroundColor: 'rgba(220, 38, 38, 0.05)',
   },
   hotspotCenterDot: {
     width: 6,
